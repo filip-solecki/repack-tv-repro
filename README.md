@@ -4,19 +4,71 @@ Minimal reproduction for four `@expo/repack-app` issues that hit TV apps with co
 native directories. Everything runs locally: **no Apple or Google account, no signing, no
 EAS** — a tvOS simulator build and an Android debug build are enough.
 
+## Run it
+
+You need Xcode with a tvOS simulator runtime, CocoaPods and Node 20+. The Android part also
+needs the Android SDK (`ANDROID_HOME` or `ANDROID_SDK_ROOT`) and a JDK, because repack shells
+out to apktool. Dependencies install themselves on the first run.
+
+### iOS — issues 1, 2 and 4
+
 ```bash
-npm install
-./repro.sh ios        # issues 1, 2, 4
-./repro.sh android    # issue 3
+./repro.sh ios
 ```
 
-Each run prints a `[BUG]` / `[ OK]` line per issue and exits non-zero while any of them
-reproduce. To check a fix, point it at another version or at a local checkout:
+Around 9 minutes the first time (`npm install`, `pod install`, one `xcodebuild`); seconds
+afterwards if you add `--skip-build`. It prints a `[BUG]` / `[ OK]` line per issue, quotes
+the three warnings repack emits, and exits non-zero while anything reproduces.
+
+Then look at the icon. Install the source app first:
+
+```bash
+SIM=$(xcrun simctl list devices available | grep -m1 "Apple TV" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')
+xcrun simctl boot $SIM || true          # fine if it says already booted
+open -a Simulator
+
+xcrun simctl install $SIM ios/build/Build/Products/Debug-appletvsimulator/RepackTVRepro.app
+xcrun simctl spawn $SIM launchctl stop com.apple.SpringBoard   # refreshes the dock
+```
+
+The dock shows the blue **NATIVE** tile. Now the repacked one, same bundle id, so it
+replaces it:
+
+```bash
+xcrun simctl uninstall $SIM dev.repro.repacktv
+xcrun simctl install $SIM out/repacked.app
+xcrun simctl spawn $SIM launchctl stop com.apple.SpringBoard
+```
+
+It should be the green **REPACKED** tile. It is Apple's placeholder instead — that is issue
+1. One key in the plist brings the icon back, with nothing else changed:
+
+```bash
+plutil -replace CFBundleIcons.CFBundlePrimaryIcon -string "App Icon - Small" \
+  out/repacked.app/Info.plist
+xcrun simctl uninstall $SIM dev.repro.repacktv
+xcrun simctl install $SIM out/repacked.app
+xcrun simctl spawn $SIM launchctl stop com.apple.SpringBoard
+```
+
+### Android — issue 3
+
+```bash
+./repro.sh android
+```
+
+Around 7 minutes the first time. Prints the version code before and after, plus the
+`android:banner` swap, which works correctly.
+
+### Verifying a fix
 
 ```bash
 ./repro.sh ios --repack-version 0.11.0
 ./repro.sh ios --repack-version file:../repack-app/packages/repack-app
+./repro.sh ios --skip-build            # reuse the app built earlier
 ```
+
+All checks green and exit code 0 mean everything here is fixed.
 
 Verified with `@expo/repack-app@0.10.0`, `expo@56.0.20`,
 `react-native@npm:react-native-tvos@0.85.3-3`, `@react-native-tvos/config-tv@0.1.6`,
@@ -68,14 +120,9 @@ The blue `NATIVE` tile is the art committed in `ios/`. The repack was supposed t
 it with the green `REPACKED` tile from `app.config.js` — the art *is* in the new
 `Assets.car`, under a name nothing points at.
 
-The third screenshot is the same repacked app with one key changed and nothing else:
-
-```bash
-plutil -replace CFBundleIcons.CFBundlePrimaryIcon -string "App Icon - Small" \
-  out/repacked.app/Info.plist
-```
-
-So the swap itself is already correct; only the pointer is missing.
+The third screenshot is the same repacked app with only `CFBundlePrimaryIcon` changed (the
+`plutil` step under [Run it](#ios--issues-1-2-and-4)). So the swap itself is already correct;
+only the pointer is missing.
 
 This does not show up on a pure CNG project, where prebuild owns both sides and the names
 happen to agree. It shows up on every project with a committed `ios/`, which is the case
