@@ -32,12 +32,16 @@ are what stops us shipping it.
 
 ## The issues
 
-| # | What happens | Consequence |
-|---|---|---|
-| 1 | The repacked `Assets.car` holds `App Icon - Small`, but the app's `Info.plist` still asks for `App Icon` | tvOS finds no icon and has no fallback, so the app shows Apple's placeholder tile |
-| 2 | The brand assets to compile are picked with the first `*.brandassets` glob hit | which icon wins depends on filesystem order, and the build setting that names it is ignored |
-| 3 | `android:versionCode` is set from the Expo config, defaulting to `1` | a Gradle-versioned app drops from `101395450` to `1` and cannot install as an update |
-| 4 | Only the first `**/*.xcassets` is compiled | every other asset catalog silently disappears from the binary |
+| # | What happens | Consequence | Since |
+|---|---|---|---|
+| 1 | The repacked `Assets.car` holds `App Icon - Small`, but the app's `Info.plist` still asks for `App Icon` | tvOS finds no icon and has no fallback, so the app shows Apple's placeholder tile | never written in any version; 0.10.0 warns about it |
+| 2 | The brand assets to compile are picked with the first `*.brandassets` glob hit | the build setting that names the icon is ignored, and with more than one set present the choice comes from filesystem order | new in 0.10.0 |
+| 3 | `android:versionCode` is taken from the Expo config with a hard default of `1` | a Gradle-versioned app drops from `101395450` to `1` and cannot install as an update | unchanged since 0.4.2 — a design gap, not a regression |
+| 4 | Only the first `**/*.xcassets` is compiled | every other asset catalog silently disappears from the binary | unchanged since 0.4.2 |
+
+None of this is documented as a limitation: the README's TV section covers detection and the
+config-tv options, and says nothing about asset catalog names, `Info.plist` icon keys, or a
+one-catalog limit.
 
 ### 1. The icon name is never written to `Info.plist`
 
@@ -56,13 +60,22 @@ would make the swap work for any naming, with no change required in the app proj
 
 Source app, and the same app after a repack:
 
-| before | after |
-|---|---|
-| ![source](docs/tvos-1-source-native-icon.png) | ![repacked](docs/tvos-2-after-repack-placeholder.png) |
+| source app | after a repack | after patching one plist key |
+|---|---|---|
+| ![source](docs/tvos-1-source-native-icon.png) | ![repacked](docs/tvos-2-after-repack-placeholder.png) | ![patched](docs/tvos-3-plist-patched-works.png) |
 
 The blue `NATIVE` tile is the art committed in `ios/`. The repack was supposed to replace
 it with the green `REPACKED` tile from `app.config.js` — the art *is* in the new
 `Assets.car`, under a name nothing points at.
+
+The third screenshot is the same repacked app with one key changed and nothing else:
+
+```bash
+plutil -replace CFBundleIcons.CFBundlePrimaryIcon -string "App Icon - Small" \
+  out/repacked.app/Info.plist
+```
+
+So the swap itself is already correct; only the pointer is missing.
 
 This does not show up on a pure CNG project, where prebuild owns both sides and the names
 happen to agree. It shows up on every project with a committed `ios/`, which is the case
@@ -83,13 +96,17 @@ make the choice deterministic and would also fix issue 1.
 It also blocks per-build-configuration icons, which is how the same app ships different
 iPhone icons today: with three committed brand asset sets, a repack becomes a coin flip.
 
-### 3. `versionCode` falls back to `1`
+### 3. `versionCode` falls back to `1` (long-standing, lowest priority)
 
 The Android manifest updater computes the version code from the Expo config with a default
-of `1`. A project that versions Android in `build.gradle` (this one uses `101395450`) has
-nothing to read in the config, so the repacked APK is stamped `versionCode 1` and Android
-refuses it as an update over the source build. Falling back to the source APK's existing
-`versionCode` instead of `1` would fix it.
+of `1`, and has done so unchanged since at least 0.4.2. A project that versions Android in
+`build.gradle` (this one uses `101395450`) has nothing to read in the config, so the
+repacked APK is stamped `versionCode 1` and Android refuses it as an update over the source
+build. Falling back to the source APK's existing `versionCode` instead of `1` would fix it.
+
+This one is arguably working as designed — repack reads the Expo config, and a config that
+declares no `versionCode` gets the documented default. It only bites projects that keep
+their Android versioning in Gradle.
 
 ### 4. Non-first asset catalogs are dropped
 
@@ -98,9 +115,19 @@ Multiple .xcassets directories found. Trying to use the first one.
 ```
 
 `Extra.xcassets/ExtraAsset` is in the source app's `Assets.car` and gone from the repacked
-one. `actool` accepts several catalogs, so compiling all of them would preserve them. Real
-apps split colours, launch images and app assets across catalogs; today each of those
-silently loses whatever is not in the first one.
+one — Xcode compiled both catalogs, the repack kept one. Real apps split colours, launch
+images and app assets across catalogs; today each of those silently loses whatever is not in
+the first one.
+
+`actool` takes several catalogs in one invocation, so passing all of them is enough. Checked
+against the two catalogs in this project:
+
+```bash
+actool A.xcassets B.xcassets --compile out --app-icon "App Icon & Top Shelf Image" \
+  --include-all-app-icons --target-device tv --platform appletvos \
+  --minimum-deployment-target 15.1 --notices --warnings
+# 0 errors, 0 warnings; the car holds App Icon, ExtraAsset, Top Shelf Image, Top Shelf Image Wide
+```
 
 ## How this project is set up
 
