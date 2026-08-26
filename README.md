@@ -68,7 +68,14 @@ Around 7 minutes the first time. Prints the version code before and after, plus 
 ./repro.sh ios --skip-build            # reuse the app built earlier
 ```
 
-All checks green and exit code 0 mean everything here is fixed.
+All checks green and exit code 0 mean everything here is fixed. A `file:` spec is copied,
+not symlinked, and its `prepare` script runs — so a source checkout builds the way you
+normally build it, and an already-built directory installs too (the script retries with
+`--ignore-scripts`).
+
+Checked in both directions: against 0.10.0 issue 1 reports `[BUG]`, and against a local copy
+patched to write `CFBundlePrimaryIcon` it reports `[ OK]` and the repacked app renders the
+green tile with no manual plist edit.
 
 Verified with `@expo/repack-app@0.10.0`, `expo@56.0.20`,
 `react-native@npm:react-native-tvos@0.85.3-3`, `@react-native-tvos/config-tv@0.1.6`,

@@ -49,7 +49,13 @@ need() { command -v "$1" >/dev/null || { echo "Missing required tool: $1" >&2; e
 echo "==> repack spec: $REPACK_SPEC"
 [[ -d node_modules ]] || npm install
 rm -rf .repack-tool
-npm install --silent --no-save --prefix .repack-tool "$REPACK_SPEC" >/dev/null
+# --install-links copies a file: spec instead of symlinking it, so node can resolve the
+# package's own dependencies. A file: spec also runs the package's prepare script (repack
+# builds with bun), so fall back to skipping lifecycle scripts for an already-built copy.
+if ! npm install --silent --no-save --install-links --prefix .repack-tool "$REPACK_SPEC" >/dev/null 2>&1; then
+    echo "    prepare script failed, retrying with --ignore-scripts"
+    npm install --silent --no-save --install-links --ignore-scripts --prefix .repack-tool "$REPACK_SPEC" >/dev/null
+fi
 REPACK_CLI=".repack-tool/node_modules/@expo/repack-app/bin/cli.js"
 node "$REPACK_CLI" --version | sed 's/^/    installed version: /'
 mkdir -p out
@@ -73,22 +79,31 @@ if [[ "$PLATFORM" == "ios" ]]; then
         -w out/work --skip-working-dir-cleanup . >out/repack-ios.log 2>&1 \
         || { tail -30 out/repack-ios.log; exit 1; }
 
-    PRIMARY="$(plutil -extract CFBundleIcons.CFBundlePrimaryIcon raw -o - "$SRC_APP/Info.plist" 2>/dev/null \
-        || plutil -extract CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconFiles.0 raw -o - "$SRC_APP/Info.plist")"
+    # Read it from the repacked app: a fix has to make that plist point at an icon the new
+    # Assets.car actually contains. Reading the source app instead would keep reporting the
+    # bug even after repack starts writing the key.
+    primary_icon() {
+        plutil -extract CFBundleIcons.CFBundlePrimaryIcon raw -o - "$1/Info.plist" 2>/dev/null \
+            || plutil -extract CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconFiles.0 raw -o - "$1/Info.plist"
+    }
+    SRC_PRIMARY="$(primary_icon "$SRC_APP")"
+    PRIMARY="$(primary_icon out/repacked.app)"
     SRC_ASSETS="$(node tools/car-assets.mjs "$SRC_APP/Assets.car")"
     OUT_ASSETS="$(node tools/car-assets.mjs out/repacked.app/Assets.car)"
 
     echo
-    echo "  Info.plist of the source app asks for icon: '$PRIMARY'"
+    echo "  icon name in the plist: source '$SRC_PRIMARY' -> repacked '$PRIMARY'"
     echo "  assets in the source Assets.car:   $(echo "$SRC_ASSETS" | tr '\n' ',' | sed 's|,$||; s|,| |g')"
     echo "  assets in the repacked Assets.car: $(echo "$OUT_ASSETS" | tr '\n' ',' | sed 's|,$||; s|,| |g')"
     grep -E "^(Multiple|The repacked app icon)" out/repack-ios.log | sed 's/^/  repack said: /' || true
     echo
 
+    ICON_BROKEN=0
     if echo "$OUT_ASSETS" | grep -qxF "$PRIMARY"; then
         report ok 1 "icon name matches Info.plist" "'$PRIMARY' is present"
     else
         report bug 1 "icon name never written to plist" "plist wants '$PRIMARY', car has none"
+        ICON_BROKEN=1
     fi
 
     if grep -q "Multiple .brandassets" out/repack-ios.log; then
@@ -105,7 +120,11 @@ if [[ "$PLATFORM" == "ios" ]]; then
 
     echo
     echo "  Look at it: xcrun simctl install <tv-sim-udid> out/repacked.app"
-    echo "  Expected the green REPACKED tile; issue 1 shows Apple's placeholder instead."
+    if [[ $ICON_BROKEN -eq 1 ]]; then
+        echo "  Expected the green REPACKED tile; issue 1 shows Apple's placeholder instead."
+    else
+        echo "  Expect the green REPACKED tile."
+    fi
 else
     need java
     # repack shells out to the Android build tools and asserts on this variable.
