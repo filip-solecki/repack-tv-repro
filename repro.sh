@@ -87,6 +87,25 @@ SRC_PRIMARY="$(primary_icon "$SRC_APP")"
 PRIMARY="$(primary_icon out/repacked.app)"
 SRC_ASSETS="$(node tools/car-assets.mjs "$SRC_APP/Assets.car")"
 OUT_ASSETS="$(node tools/car-assets.mjs out/repacked.app/Assets.car)"
+DECLARED="$(sed -n 's/.*ASSETCATALOG_COMPILER_APPICON_NAME = "\{0,1\}\([^";]*\)"\{0,1\};.*/\1/p' \
+    ios/*.xcodeproj/project.pbxproj | head -1)"
+
+# Everything `npm test` asserts on, so the measuring lives in one place.
+export R_SPEC="$REPACK_SPEC" R_DECLARED="$DECLARED" R_SRC_ICON="$SRC_PRIMARY" \
+    R_OUT_ICON="$PRIMARY" R_SRC_ASSETS="$SRC_ASSETS" R_OUT_ASSETS="$OUT_ASSETS" \
+    R_WARNINGS="$(grep -E '^(Multiple|The repacked app icon)' out/repack.log || true)"
+node -e '
+const list = (s) => (s ?? "").split("\n").filter(Boolean);
+console.log(JSON.stringify({
+    repackSpec: process.env.R_SPEC,
+    declaredIconName: process.env.R_DECLARED,
+    sourcePrimaryIcon: process.env.R_SRC_ICON,
+    repackedPrimaryIcon: process.env.R_OUT_ICON,
+    sourceAssets: list(process.env.R_SRC_ASSETS),
+    repackedAssets: list(process.env.R_OUT_ASSETS),
+    warnings: list(process.env.R_WARNINGS),
+}, null, 2));
+' >out/result.json
 
 echo
 echo "  icon name in the plist: source '$SRC_PRIMARY' -> repacked '$PRIMARY'"

@@ -7,7 +7,8 @@
     "scripts": {
         "prebuild": "EXPO_TV=1 expo prebuild --no-install",
         "art": "node tools/make-art.mjs",
-        "native-catalog": "node tools/apply-native-catalog.mjs"
+        "native-catalog": "node tools/apply-native-catalog.mjs",
+        "test": "node --test tests/*.test.mjs"
     },
     "dependencies": {
         "@react-native-tvos/config-tv": "0.1.6",

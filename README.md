@@ -50,20 +50,34 @@ xcrun simctl spawn $SIM launchctl stop com.apple.SpringBoard
 
 ### Verifying a fix
 
+Point the repro at your build and run the tests:
+
 ```bash
-./repro.sh --repack-version 0.11.0
 ./repro.sh --repack-version file:../repack-app/packages/repack-app
-./repro.sh --skip-build                # reuse the app built earlier
+npm test
 ```
 
-All checks green and exit code 0 mean everything here is fixed. A `file:` spec is copied,
-not symlinked, and its `prepare` script runs — so a source checkout builds the way you
-normally build it, and an already-built directory installs too (the script retries with
-`--ignore-scripts`).
+`repro.sh` does the measuring and writes `out/result.json`; `npm test` asserts one test per
+issue against that file, so there is a pass/fail list to work against:
 
-Checked in both directions: against 0.10.0 issue 1 reports `[BUG]`, and against a local copy
-patched to write `CFBundlePrimaryIcon` it reports `[ OK]` and the repacked app renders the
-green tile with no manual plist edit.
+```
+✖ 1. the icon the Info.plist points at exists in the repacked Assets.car
+✖ 2. the brand asset set named by ASSETCATALOG_COMPILER_APPICON_NAME is the one compiled
+✖ 3. assets from every .xcassets survive the repack
+```
+
+Three passes means all three are fixed. Each failure message prints the actual values, so it
+says what it wanted and what it got. Test 2 encodes "honour the build setting" — if you fix
+the selection a different way, say so and the assertion can follow.
+
+`--repack-version` also takes a plain version (`0.11.0`) or any npm spec. A `file:` spec is
+copied rather than symlinked and its `prepare` script runs, so a source checkout builds the
+way you normally build it, and an already-built directory installs too (the script retries
+with `--ignore-scripts`). `--skip-build` reuses the simulator app from an earlier run.
+
+Both directions are exercised: against 0.10.0 all three tests fail, and against a local copy
+patched to write `CFBundlePrimaryIcon` test 1 passes and the repacked app renders the green
+tile with no manual plist edit.
 
 Verified with `@expo/repack-app@0.10.0`, `expo@56.0.20`,
 `react-native@npm:react-native-tvos@0.85.3-3`, `@react-native-tvos/config-tv@0.1.6`,
@@ -136,6 +150,26 @@ make the choice deterministic and would also fix issue 1.
 It also blocks per-build-configuration icons, which is how the same app ships different
 iPhone icons today: with three committed brand asset sets, a repack becomes a coin flip.
 
+See it yourself — the working directory is kept (`--skip-working-dir-cleanup`), so both
+candidates are still on disk next to the choice the project declared:
+
+```console
+$ grep -m1 -o "ASSETCATALOG_COMPILER_APPICON_NAME = [^;]*" ios/*.xcodeproj/project.pbxproj
+ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image"
+
+$ ls out/work/Image.xcassets | grep brandassets
+App Icon & Top Shelf Image.brandassets
+TVAppIcon.brandassets
+
+$ node tools/car-assets.mjs out/repacked.app/Assets.car
+App Icon - Small
+Top Shelf Image
+Top Shelf Image Wide
+```
+
+The set the build setting names contributes `App Icon`; the compiled binary got
+`App Icon - Small`, so the other set won.
+
 ### 3. Non-first asset catalogs are dropped
 
 ```
@@ -146,6 +180,26 @@ Multiple .xcassets directories found. Trying to use the first one.
 one — Xcode compiled both catalogs, the repack kept one. Real apps split colours, launch
 images and app assets across catalogs; today each of those silently loses whatever is not in
 the first one.
+
+See it yourself — the project has two catalogs, and the asset from the second one survives
+the Xcode build but not the repack:
+
+```console
+$ ls -d ios/RepackTVRepro/*.xcassets
+ios/RepackTVRepro/Extra.xcassets
+ios/RepackTVRepro/Images.xcassets
+
+$ node tools/car-assets.mjs ios/build/Build/Products/Debug-appletvsimulator/RepackTVRepro.app/Assets.car
+App Icon
+ExtraAsset          # <- compiled by Xcode
+Top Shelf Image
+Top Shelf Image Wide
+
+$ node tools/car-assets.mjs out/repacked.app/Assets.car
+App Icon - Small
+Top Shelf Image     # <- ExtraAsset is gone
+Top Shelf Image Wide
+```
 
 `actool` takes several catalogs in one invocation, so passing all of them is enough. Checked
 against the two catalogs in this project:
