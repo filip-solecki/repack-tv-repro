@@ -5,21 +5,21 @@
 //
 // One test per reported issue. All three pass = all three are fixed.
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 import path from "node:path";
-import {before, describe, it} from "node:test";
+import {describe, it} from "node:test";
 
 const RESULT = path.join(import.meta.dirname, "..", "out", "result.json");
 
-let result;
-before(() => {
-    try {
-        result = JSON.parse(readFileSync(RESULT, "utf8"));
-    } catch {
-        throw new Error(`${RESULT} is missing — run ./repro.sh first`);
-    }
-    console.log(`  repack spec under test: ${result.repackSpec}`);
-});
+// Bail out before the runner starts: throwing inside a hook would cancel every test and
+// bury this line under stack traces.
+if (!existsSync(RESULT)) {
+    console.error("out/result.json is missing. Run ./repro.sh first, then npm test.");
+    process.exit(1);
+}
+
+const result = JSON.parse(readFileSync(RESULT, "utf8"));
+console.log(`repack spec under test: ${result.repackSpec}\n`);
 
 describe("@expo/repack-app TV icon repacking", () => {
     it("1. the icon the Info.plist points at exists in the repacked Assets.car", () => {

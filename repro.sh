@@ -135,7 +135,8 @@ else
 fi
 
 echo
-echo "  Look at it: xcrun simctl install <tv-sim-udid> out/repacked.app"
+echo "  Assert on it: npm test        (one test per issue, reads out/result.json)"
+echo "  Look at it:   xcrun simctl install <tv-sim-udid> out/repacked.app"
 if [[ $ICON_BROKEN -eq 1 ]]; then
     echo "  Expected the green REPACKED tile; issue 1 shows Apple's placeholder instead."
 else

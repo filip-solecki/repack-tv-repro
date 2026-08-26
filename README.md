@@ -10,7 +10,8 @@ You need Xcode with a tvOS simulator runtime, CocoaPods and Node 20+. Dependenci
 themselves on the first run.
 
 ```bash
-./repro.sh
+./repro.sh        # the report
+npm test          # the same three checks as assertions
 ```
 
 Around 9 minutes the first time (`npm install`, `pod install`, one `xcodebuild`); seconds
