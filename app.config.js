@@ -1,6 +1,6 @@
 // Repack re-evaluates this config during a repack and injects the icons it finds here.
-// The art below is deliberately different from the art committed in ios/ and android/,
-// so "did the swap happen" is answerable by looking at one screenshot.
+// The art below is deliberately different from the art committed in ios/, so "did the swap
+// happen" is answerable by looking at one screenshot.
 const TV = "./assets/tv/repacked";
 
 module.exports = {
@@ -8,21 +8,15 @@ module.exports = {
         name: "Repack TV Repro",
         slug: "repack-tv-repro",
         version: "1.0.0",
-        platforms: ["ios", "android"],
+        platforms: ["ios"],
         ios: {
             bundleIdentifier: "dev.repro.repacktv",
-        },
-        android: {
-            package: "dev.repro.repacktv",
-            // No `versionCode` here on purpose: this project versions Android in
-            // build.gradle, the way a Gradle-managed project does. See issue 3.
         },
         plugins: [
             [
                 "@react-native-tvos/config-tv",
                 {
                     isTV: true,
-                    androidTVBanner: `${TV}/banner-640x360.png`,
                     appleTVImages: {
                         icon: `${TV}/icon-1280x768.png`,
                         iconSmall: `${TV}/icon-400x240.png`,

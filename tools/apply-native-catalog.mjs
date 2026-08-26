@@ -1,14 +1,13 @@
 // Turns a vanilla `expo prebuild` result into what a project with a hand-made Xcode TV
-// target looks like. The committed ios/ and android/ already contain the result, so you
+// target looks like. The committed ios/ already contains the result, so you
 // only need this after `expo prebuild --clean`.
 //   npm run native-catalog
 //
-// Four deviations from the prebuild output, each one the trigger for one issue:
+// Three deviations from the prebuild output, each one the trigger for one issue:
 //   1. brand assets named the way Xcode names them ("App Icon & Top Shelf Image", with an
 //      "App Icon" image stack inside) instead of config-tv's "TVAppIcon"
 //   2. ASSETCATALOG_COMPILER_APPICON_NAME + Info.plist CFBundleIcons pointing at it
 //   3. a second asset catalog (Extra.xcassets)
-//   4. an Android versionCode managed in build.gradle, not in app.config.js
 import {execFileSync} from "node:child_process";
 import {existsSync} from "node:fs";
 import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
@@ -18,7 +17,6 @@ import sharp from "sharp";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const NATIVE_ART = path.join(ROOT, "assets/tv/native");
-const GRADLE_VERSION_CODE = 101395450;
 const APPICON_NAME = "App Icon & Top Shelf Image";
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -121,7 +119,7 @@ async function buildBrandAssets(catalog) {
 }
 
 // A second catalog, registered in the Xcode project so the real build compiles it.
-// Repack compiles only the first catalog it finds, so this asset is the canary for issue 4.
+// Repack compiles only the first catalog it finds, so this asset is the canary for issue 3.
 async function buildExtraCatalog(projectDir) {
     const catalog = path.join(projectDir, "Extra.xcassets");
     const set = path.join(catalog, "ExtraAsset.imageset");
@@ -197,27 +195,6 @@ function patchInfoPlist(projectDir) {
     console.log('  Info.plist: CFBundleIcons -> CFBundleIconFiles ["App Icon"]');
 }
 
-// An Android TV project made by hand references its own banner drawable, not config-tv's
-// `tv_banner`. Keeping that here is what makes the banner swap observable.
-async function patchAndroidBanner() {
-    const res = path.join(ROOT, "android/app/src/main/res/drawable");
-    await mkdir(res, {recursive: true});
-    await sharp(path.join(NATIVE_ART, "banner-640x360.png")).toFile(path.join(res, "banner.png"));
-    const manifest = path.join(ROOT, "android/app/src/main/AndroidManifest.xml");
-    const before = await readFile(manifest, "utf8");
-    const after = before.replace(/android:banner="[^"]*"/, 'android:banner="@drawable/banner"');
-    await writeFile(manifest, after);
-    console.log('  AndroidManifest.xml: android:banner="@drawable/banner" (+ drawable/banner.png)');
-}
-
-async function patchGradleVersionCode() {
-    const file = path.join(ROOT, "android/app/build.gradle");
-    const before = await readFile(file, "utf8");
-    const after = before.replace(/versionCode \d+/, `versionCode ${GRADLE_VERSION_CODE}`);
-    await writeFile(file, after);
-    console.log(`  build.gradle: versionCode ${GRADLE_VERSION_CODE}`);
-}
-
 const projectDir = await iosProjectDir();
 const catalog = path.join(projectDir, "Images.xcassets");
 console.log(`Patching ${path.relative(ROOT, projectDir)}`);
@@ -228,6 +205,4 @@ await buildExtraCatalog(projectDir);
 console.log("  catalog: Extra.xcassets/ExtraAsset.imageset");
 await patchPbxproj();
 patchInfoPlist(projectDir);
-await patchAndroidBanner();
-await patchGradleVersionCode();
 console.log("Done.");

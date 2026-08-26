@@ -23,7 +23,6 @@ const SIZES = [
     ["top-shelf-3840x1440", 3840, 1440],
     ["top-shelf-wide-2320x720", 2320, 720],
     ["top-shelf-wide-4640x1440", 4640, 1440],
-    ["banner-640x360", 640, 360],
 ];
 
 function tile(width, height, {bg, label}) {

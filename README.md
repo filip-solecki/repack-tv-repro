@@ -1,24 +1,21 @@
 # repack-tv-repro
 
-Minimal reproduction for four `@expo/repack-app` issues that hit TV apps with committed
-native directories. Everything runs locally: **no Apple or Google account, no signing, no
-EAS** — a tvOS simulator build and an Android debug build are enough.
+Minimal reproduction for three `@expo/repack-app` issues that hit Apple TV apps with a
+committed native directory. Everything runs locally: **no Apple account, no signing, no
+EAS** — a tvOS simulator build is enough.
 
 ## Run it
 
-You need Xcode with a tvOS simulator runtime, CocoaPods and Node 20+. The Android part also
-needs the Android SDK (`ANDROID_HOME` or `ANDROID_SDK_ROOT`) and a JDK, because repack shells
-out to apktool. Dependencies install themselves on the first run.
-
-### iOS — issues 1, 2 and 4
+You need Xcode with a tvOS simulator runtime, CocoaPods and Node 20+. Dependencies install
+themselves on the first run.
 
 ```bash
-./repro.sh ios
+./repro.sh
 ```
 
 Around 9 minutes the first time (`npm install`, `pod install`, one `xcodebuild`); seconds
-afterwards if you add `--skip-build`. It prints a `[BUG]` / `[ OK]` line per issue, quotes
-the three warnings repack emits, and exits non-zero while anything reproduces.
+afterwards with `--skip-build`. It prints a `[BUG]` / `[ OK]` line per issue, quotes the
+three warnings repack emits, and exits non-zero while anything reproduces.
 
 Then look at the icon. Install the source app first:
 
@@ -51,21 +48,12 @@ xcrun simctl install $SIM out/repacked.app
 xcrun simctl spawn $SIM launchctl stop com.apple.SpringBoard
 ```
 
-### Android — issue 3
-
-```bash
-./repro.sh android
-```
-
-Around 7 minutes the first time. Prints the version code before and after, plus the
-`android:banner` swap, which works correctly.
-
 ### Verifying a fix
 
 ```bash
-./repro.sh ios --repack-version 0.11.0
-./repro.sh ios --repack-version file:../repack-app/packages/repack-app
-./repro.sh ios --skip-build            # reuse the app built earlier
+./repro.sh --repack-version 0.11.0
+./repro.sh --repack-version file:../repack-app/packages/repack-app
+./repro.sh --skip-build                # reuse the app built earlier
 ```
 
 All checks green and exit code 0 mean everything here is fixed. A `file:` spec is copied,
@@ -79,15 +67,14 @@ green tile with no manual plist edit.
 
 Verified with `@expo/repack-app@0.10.0`, `expo@56.0.20`,
 `react-native@npm:react-native-tvos@0.85.3-3`, `@react-native-tvos/config-tv@0.1.6`,
-Xcode 26.6, tvOS 26.5 simulator, Android build-tools 37.0.0.
+Xcode 26.6 and the tvOS 26.5 simulator.
 
 ## What already works
 
-Credit where due: on 0.10.0 the TV icon pipeline itself works. Repack detects a TV target,
-compiles the tvOS brand assets with `--platform appletvos --target-device tv`, and rewrites
-`android:banner` to the resource config-tv generated. The repro shows the Android banner
-swap going from `drawable/banner` to `drawable/tv_banner`, correctly. The four issues below
-are what stops us shipping it.
+Credit where due: on 0.10.0 the TV icon pipeline itself works. Repack detects the TV target
+from `UIDeviceFamily`, runs its internal prebuild with `EXPO_TV=1`, and compiles the tvOS
+brand assets with `--platform appletvos --target-device tv`. The new art really does end up
+in the repacked `Assets.car`. The three issues below are what stops us shipping it.
 
 ## The issues
 
@@ -95,8 +82,7 @@ are what stops us shipping it.
 |---|---|---|---|
 | 1 | The repacked `Assets.car` holds `App Icon - Small`, but the app's `Info.plist` still asks for `App Icon` | tvOS finds no icon and has no fallback, so the app shows Apple's placeholder tile | never written in any version; 0.10.0 warns about it |
 | 2 | The brand assets to compile are picked with the first `*.brandassets` glob hit | the build setting that names the icon is ignored, and with more than one set present the choice comes from filesystem order | new in 0.10.0 |
-| 3 | `android:versionCode` is taken from the Expo config with a hard default of `1` | a Gradle-versioned app drops from `101395450` to `1` and cannot install as an update | unchanged since 0.4.2 — a design gap, not a regression |
-| 4 | Only the first `**/*.xcassets` is compiled | every other asset catalog silently disappears from the binary | unchanged since 0.4.2 |
+| 3 | Only the first `**/*.xcassets` is compiled | every other asset catalog silently disappears from the binary | unchanged since 0.4.2 |
 
 None of this is documented as a limitation: the README's TV section covers detection and the
 config-tv options, and says nothing about asset catalog names, `Info.plist` icon keys, or a
@@ -128,8 +114,8 @@ it with the green `REPACKED` tile from `app.config.js` — the art *is* in the n
 `Assets.car`, under a name nothing points at.
 
 The third screenshot is the same repacked app with only `CFBundlePrimaryIcon` changed (the
-`plutil` step under [Run it](#ios--issues-1-2-and-4)). So the swap itself is already correct;
-only the pointer is missing.
+`plutil` step under [Run it](#run-it)). So the swap itself is already correct; only the
+pointer is missing.
 
 This does not show up on a pure CNG project, where prebuild owns both sides and the names
 happen to agree. It shows up on every project with a committed `ios/`, which is the case
@@ -150,19 +136,7 @@ make the choice deterministic and would also fix issue 1.
 It also blocks per-build-configuration icons, which is how the same app ships different
 iPhone icons today: with three committed brand asset sets, a repack becomes a coin flip.
 
-### 3. `versionCode` falls back to `1` (long-standing, lowest priority)
-
-The Android manifest updater computes the version code from the Expo config with a default
-of `1`, and has done so unchanged since at least 0.4.2. A project that versions Android in
-`build.gradle` (this one uses `101395450`) has nothing to read in the config, so the
-repacked APK is stamped `versionCode 1` and Android refuses it as an update over the source
-build. Falling back to the source APK's existing `versionCode` instead of `1` would fix it.
-
-This one is arguably working as designed — repack reads the Expo config, and a config that
-declares no `versionCode` gets the documented default. It only bites projects that keep
-their Android versioning in Gradle.
-
-### 4. Non-first asset catalogs are dropped
+### 3. Non-first asset catalogs are dropped
 
 ```
 Multiple .xcassets directories found. Trying to use the first one.
@@ -186,21 +160,19 @@ actool A.xcassets B.xcassets --compile out --app-icon "App Icon & Top Shelf Imag
 ## How this project is set up
 
 An `expo prebuild --no-install` result with `@react-native-tvos/config-tv`, with the native
-directories **committed on purpose** — that is the condition all four issues need. On top
-of the vanilla prebuild output, `tools/apply-native-catalog.mjs` applies four deviations
-that make the project look like one whose TV target was made in Xcode:
+directory **committed on purpose** — that is the condition all three issues need. On top of
+the vanilla prebuild output, `tools/apply-native-catalog.mjs` applies three deviations that
+make the project look like one whose TV target was made in Xcode:
 
 1. brand assets named `App Icon & Top Shelf Image.brandassets` with an `App Icon` image
    stack inside (Xcode's naming), instead of config-tv's `TVAppIcon`
 2. `ASSETCATALOG_COMPILER_APPICON_NAME` and `Info.plist` `CFBundleIcons` pointing at it
 3. a second catalog, `Extra.xcassets`, registered in the Xcode project
-4. `versionCode` in `build.gradle`, and `android:banner` pointing at the project's own
-   `drawable/banner`
 
 Two clearly labelled art sets make the outcome readable at a glance: **blue `NATIVE`** is
-committed in `ios/` and `android/`, **green `REPACKED`** is referenced from
-`app.config.js` and is what a repack should inject. `npm run art` regenerates both,
-`npm run native-catalog` re-applies the deviations after an `expo prebuild --clean`.
+committed in `ios/`, **green `REPACKED`** is referenced from `app.config.js` and is what a
+repack should inject. `npm run art` regenerates both, `npm run native-catalog` re-applies
+the deviations after an `expo prebuild --clean`.
 
 ## Not in scope
 
