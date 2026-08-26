@@ -1,0 +1,15 @@
+node_modules/
+.expo/
+out/
+*.log
+
+# ios/ and android/ ARE committed on purpose — the issues only reproduce with
+# native directories in the repo. Only build output is ignored here.
+ios/build/
+ios/Pods/
+ios/*.xcworkspace/xcuserdata/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.repack-tool/

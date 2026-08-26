@@ -1,0 +1,21 @@
+{
+    "name": "repack-tv-repro",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Minimal reproduction for four @expo/repack-app issues on Apple TV and Android TV",
+    "main": "index.js",
+    "scripts": {
+        "prebuild": "EXPO_TV=1 expo prebuild --no-install",
+        "art": "node tools/make-art.mjs",
+        "native-catalog": "node tools/apply-native-catalog.mjs"
+    },
+    "dependencies": {
+        "@react-native-tvos/config-tv": "0.1.6",
+        "expo": "56.0.20",
+        "react": "19.2.4",
+        "react-native": "npm:react-native-tvos@0.85.3-3"
+    },
+    "devDependencies": {
+        "sharp": "0.34.4"
+    }
+}
